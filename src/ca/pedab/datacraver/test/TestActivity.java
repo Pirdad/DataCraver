@@ -22,10 +22,23 @@ public class TestActivity extends Activity implements DataCraver.CraveListener {
 
     private void start() {
 
-        DataCraver craver = new DataCraver(true, "DataCraver");
-        craver.crave(Craving.getInstance("some_id")
-                .setMethod(Craving.CRAVEMETHOD.GET)
-                .setUrl("http://eventplanner-dev.squarepin.ca/api/users"), this);
+        // GOOGLE FEED TEST: https://ajax.googleapis.com/ajax/services/feed/find?v=1.0&q=Official%20Google%20Blogs
+        DataCraver craver = new DataCraver();
+        craver.crave(Craving.getInstance(this, "evt_planner", 2432)
+//                // GET
+//                .setMethod(Craving.CRAVEMETHOD.GET)
+//                .setUrl("http://eventplanner-dev.squarepin.ca/api/users")
+//                // POST
+//                .setMethod(Craving.CRAVEMETHOD.POST)
+//                .setUrl("http://eventplanner-dev.squarepin.ca/api/users")
+//                .addHeader("Content-Type", "application/json")
+//                .setPostBody("{\"first_name\":\"Sarah\",\"last_name\":\"Millawi\"}")
+                // DELETE
+                .setMethod(Craving.CRAVEMETHOD.DELETE)
+                .setUrl("http://eventplanner-dev.squarepin.ca/api/users")
+                .addGetParameter("id", "9")
+                .setDebug(true)
+            , this);
     }
 
     @Override
@@ -38,14 +51,14 @@ public class TestActivity extends Activity implements DataCraver.CraveListener {
     @Override
     public void craveAvailable(String string_id, int int_id, Data data) {
 
-        Log.d("DataCraver", "Message: " + data.getHttpCode().message);
-        Log.d("DataCraver", "Response: " + data.getResponse());
+        Log.d("Craving", "Message: " + data.getHttpCode().message);
+        Log.d("Craving", "Response: " + data.getResponse());
     }
 
     @Override
     public void craveUnavailable(String string_id, int int_id, Data data) {
 
-        Log.d("DataCraver", "Message: " + data.getHttpCode().message);
-        Log.d("DataCraver", "Response: " + data.getResponse());
+        Log.d("Craving", "Message: " + data.getHttpCode().message);
+        Log.d("Craving", "Response: " + data.getResponse());
     }
 }

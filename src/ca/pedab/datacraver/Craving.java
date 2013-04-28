@@ -1,12 +1,15 @@
 package ca.pedab.datacraver;
 
+import android.content.Context;
 import org.apache.http.message.BasicNameValuePair;
 
 import java.util.ArrayList;
 
 /**
  * This class is for wrapping your HTTP request. It does not have a constructor.
- * Rather the static {@link #getInstance(String)} must be used. It will allow method chaining. <br><br>
+ * Rather the static {@link #getInstance(android.content.Context, String)} or
+ * {@link #getInstance(android.content.Context, String, int)} must be used.
+ * It will allow method chaining. <br><br>
  * Also this class provides two identifier that you can use. 1. integer id, 2. string id.<br>
  * getIntegerId() gives you the integer id and getId() gives you the string id. And
  * of-course you can use the corresponding setters to set them.<br><br>
@@ -16,26 +19,45 @@ import java.util.ArrayList;
  */
 public class Craving extends BaseEntity {
 
+    public static final String DEFAULT_DEBUG_TAG = "Craving";
+
+    protected Context context;
+
     protected int connect_timeout;
     protected int read_timeout;
     protected int int_id;
 
+    protected boolean debug;
+
     protected String url;
     protected String method;
+    protected String post_body;
+    protected String debug_tag;
 
     protected ArrayList<BasicNameValuePair> get_parameters;
     protected ArrayList<BasicNameValuePair> post_parameters;
     protected ArrayList<BasicNameValuePair> headers;
 
 
-    protected Craving(String id, int int_id) {
+    protected Craving(Context context, String id, int int_id) {
+
+        this(context, id, int_id, false, DEFAULT_DEBUG_TAG);
+    }
+
+    protected Craving(Context context, String id, int int_id, boolean debug, String debug_tag) {
 
         this.id = id;
         this.int_id = int_id;
+        this.context = context;
+
         // DEFAULT SETTINGS
         this.method = CRAVEMETHOD.GET.string;
         this.connect_timeout = CRAVETIMEOUT.DEFAULT.millisecond;
         this.read_timeout = CRAVETIMEOUT.DEFAULT.millisecond;
+
+        // DEBUG SETTINGS
+        this.debug = debug;
+        this.debug_tag = debug_tag;
     }
 
 
@@ -45,9 +67,9 @@ public class Craving extends BaseEntity {
      * ex. Craving.getInstance().setMethod(CRAVEMETHOD.POST)....
      * @return A new Instance of Craving
      */
-    public static Craving getInstance(String string_id, int int_id) {
+    public static Craving getInstance(Context context, String string_id, int int_id) {
 
-        return new Craving(string_id, int_id);
+        return new Craving(context, string_id, int_id);
     }
 
     /**
@@ -56,10 +78,10 @@ public class Craving extends BaseEntity {
      * ex. Craving.getInstance().setMethod(CRAVEMETHOD.POST)....
      * @return A new Instance of Craving
      */
-    public static Craving getInstance(String string_id) {
+    public static Craving getInstance(Context context, String string_id) {
 
         int random_id = generateRandomInteger();
-        return new Craving(string_id, random_id);
+        return new Craving(context, string_id, random_id);
     }
 
     private static int generateRandomInteger() {
@@ -86,6 +108,11 @@ public class Craving extends BaseEntity {
     public String getRequestMethod() {
 
         return method;
+    }
+
+    public String getPostBody() {
+
+        return post_body;
     }
 
     public ArrayList<BasicNameValuePair> getPostParameters() {
@@ -162,6 +189,12 @@ public class Craving extends BaseEntity {
         return this;
     }
 
+    public Craving setPostBody(String text) {
+
+        this.post_body = text;
+        return this;
+    }
+
     public Craving setPostParameters(ArrayList<BasicNameValuePair> post_params) {
 
         this.post_parameters = post_params;
@@ -194,13 +227,31 @@ public class Craving extends BaseEntity {
         return this;
     }
 
-    @Override
-    public String toString() {
-        return "Craving{" +
-                "method='" + method + '\'' +
-                ", connect_timeout=" + connect_timeout +
-                ", read_timeout=" + read_timeout +
-                '}';
+    public boolean shouldDebug() {
+
+        return debug;
+    }
+
+    public Craving setDebug(boolean debug) {
+
+        this.debug = debug;
+        return this;
+    }
+
+    public String getDebugTag() {
+
+        return debug_tag;
+    }
+
+    public Context getContext() {
+
+        return context;
+    }
+
+    public Craving setDebugTag(String debug_tag) {
+
+        this.debug_tag = debug_tag;
+        return this;
     }
 
 

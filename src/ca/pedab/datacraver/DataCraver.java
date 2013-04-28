@@ -1,13 +1,21 @@
 package ca.pedab.datacraver;
 
+import android.content.Context;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
 import android.os.AsyncTask;
+import android.text.TextUtils;
 import android.util.Log;
 import org.apache.http.message.BasicNameValuePair;
 
 import javax.net.ssl.HttpsURLConnection;
 import java.io.*;
 import java.net.*;
+import java.text.DecimalFormat;
 import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.zip.GZIPInputStream;
 
 
@@ -18,32 +26,15 @@ import java.util.zip.GZIPInputStream;
  * *Thread Safe*<br>
  * DataCraver craver = new DataCraver();<br>
  * craver.crave(*provide_craving_object, *provide_crave_listener_to_notify_you, *provide_custom_processor);<br><br>
- * *provide_custom_processor: means you could pass your own implementation of processing the request ({@link CravingProcessor}).<br><br>
+ * *provide_custom_processor: [optional] means you could pass your own implementation of processing the request ({@link CravingProcessor}).<br><br>
  * <b>Statically:</b><br>
  * *Not Thread Safe*<br>
- * DataCraver.prepareCraving(*provide_craving_object, *provide_optional_result_container);<br>
- * DataCraver.processRequest(*provide_url_connection_object, *provide_optional_result_container);<br><br>
+ * DataCraver.processCraving(*provide_craving_object, *provide_optional_result_container);<br><br>
  * User: pirdod
  * Date: 4/17/13
  * Time: 4:01 PM
  */
 public class DataCraver {
-
-    private String debug_tag = "DataCraver";
-    private boolean debug = true;
-
-    public DataCraver() { }
-
-    /**
-     * Create a new DataCraver and enable or disable Debugging.
-     * @param debug true or false.
-     * @param debug_tag the tag to use for the log debug messages.
-     */
-    public DataCraver(boolean debug, String debug_tag) {
-
-        this.debug = debug;
-        if (debug_tag != null) this.debug_tag = debug_tag;
-    }
 
     public void crave(Craving craving, CraveListener listener) {
 
@@ -55,16 +46,23 @@ public class DataCraver {
         new RushForCraving(craving, listener, processor).executeOnExecutor(AsyncTask.THREAD_POOL_EXECUTOR);
     }
 
-    public static Data processCraving(Craving craving, Data result_container, boolean debug, String debug_tag) {
+    public static Data processCraving(Craving craving, Data result_container) {
 
         long start_time = System.currentTimeMillis();
         if (result_container == null) result_container = Data.getInstance("none_supplied", -1);
+
+        Quicky.logDebugMessage(craving.shouldDebug(), craving.getDebugTag(), //DEBUG
+                "[" + craving.getIntegerId() + "] Time to process craving: " + craving.getId());
+        Quicky.logRequest(craving.shouldDebug(), craving.getDebugTag(), craving); //DEBUG
 
         String url = craving.getUrl();
         boolean is_https = Quicky.isHttps(url);
         HttpURLConnection con = null;
 
         try {
+
+            boolean network_available = Quicky.checkNetworkConnection(craving.context);
+            if (network_available == false) throw new NoNetworkConnectionException();
 
             if (is_https) {
                 con = (HttpsURLConnection) new URL(url).openConnection();
@@ -77,44 +75,76 @@ public class DataCraver {
             con.setRequestMethod(craving.getRequestMethod());
 
             Quicky.setDoOutPutTrue(con, craving.getRequestMethod());
-            Quicky.setRequestHeaders(con, craving.getHeaders());
-            Quicky.writePostParameters(con, craving.getRequestMethod(), craving.getPostParameters());
+            Quicky.setRequestHeaders(con, craving); //HAS DEBUG
+            Quicky.writePostBody(con, craving); //HAS DEBUG
 
-            Data.HTTPCODE code = Quicky.getHTTPCODE(con.getResponseCode());
+            start_time = System.currentTimeMillis(); //DEBUG
+            int response_code = con.getResponseCode(); //GET RESPONSE CODE
+            long milli_rspns = Quicky.calculateResponseTimeInMillis(start_time); //DEBUG
+            String sec_rspns = Quicky.convertResponseTimeToSeconds(milli_rspns); //DEBUG
+            Quicky.logDebugMessage(craving.shouldDebug(), craving.getDebugTag(), //DEBUG
+                    "[" + craving.getIntegerId() + "] Response took " + sec_rspns + " seconds or " + milli_rspns + " milliseconds.");
+
+            Data.HTTPCODE code = Quicky.getHTTPCODE(response_code);
             result_container.setCode(code);
+
+            Quicky.logResponseHeaders(con, craving); //DEBUG
 
             InputStream in = con.getInputStream();
             String cnt_ncding = con.getContentEncoding();
             result_container.setContentEncoding(cnt_ncding);
             if (cnt_ncding != null && cnt_ncding.equals("gzip")) in = new GZIPInputStream(in);
 
-            String result_str = Quicky.readInputStream(in);
+            start_time = System.currentTimeMillis(); //DEBUG
+            String result_str = Quicky.readInputStream(in); //PARSE INPUT STREAM
+            long milli_prse = Quicky.calculateResponseTimeInMillis(start_time); //DEBUG
+            String sec_prse = Quicky.convertResponseTimeToSeconds(milli_prse); //DEBUG
+            Quicky.logDebugMessage(craving.shouldDebug(), craving.getDebugTag(), //DEBUG
+                    "[" + craving.getIntegerId() + "] Parsing to String took " + sec_prse + " seconds or " + milli_prse + " milliseconds.");
+
             result_container.setResponse(result_str);
+
+        } catch (NoNetworkConnectionException e) {
+
+            String ui_message = "Seems like your Network Connection is down at the moment.";
+            String debug_message = "[" + craving.getIntegerId() + "] " + ui_message + " Detail: NoNetworkConnectionException > " + e.getMessage();
+            appCaughtException(result_container, ui_message, craving.shouldDebug(), craving.getDebugTag(), debug_message);
 
         } catch (MalformedURLException e) {
 
             String ui_message = "The application made a bad request to the server.";
-            String debug_message = ui_message + " Detail: MalformedURLException > " + e.getMessage();
-            appCaughtException(result_container, ui_message, debug, debug_tag, debug_message);
+            String debug_message = "[" + craving.getIntegerId() + "] " + ui_message + " Detail: MalformedURLException > " + e.getMessage();
+            appCaughtException(result_container, ui_message, craving.shouldDebug(), craving.getDebugTag(), debug_message);
 
         } catch (SocketTimeoutException e) {
 
             long millis = Quicky.calculateResponseTimeInMillis(start_time);
             String ui_message = "The application timed out after " + Quicky.convertResponseTimeToSeconds(millis) + " seconds.";
-            String debug_message = ui_message + " In Milliseconds: " + millis;
-            appCaughtException(result_container, ui_message, debug, debug_tag, debug_message);
+            String debug_message = "[" + craving.getIntegerId() + "] " + ui_message + " In Milliseconds: " + millis;
+            appCaughtException(result_container, ui_message, craving.shouldDebug(), craving.getDebugTag(), debug_message);
 
         } catch (ProtocolException e) {
 
             String ui_message = "The application failed to make the request.";
-            String debug_message = ui_message + " Detail: ProtocolException > " + e.getMessage();
-            appCaughtException(result_container, ui_message, debug, debug_tag, debug_message);
+            String debug_message = "[" + craving.getIntegerId() + "] " + ui_message + " Detail: ProtocolException > " + e.getMessage();
+            appCaughtException(result_container, ui_message, craving.shouldDebug(), craving.getDebugTag(), debug_message);
+
+        } catch (FileNotFoundException e) {
+
+            Quicky.getErrorStream(con, result_container);
+            String ui_message = "The application failed to make the request.";
+            String debug_message = "[" + craving.getIntegerId() + "] " + ui_message + " Detail: FileNotFoundException > " + e.getMessage();
+            appCaughtException(result_container, ui_message, craving.shouldDebug(), craving.getDebugTag(), debug_message);
 
         } catch (IOException e) {
 
             String ui_message = "The application failed to make the request.";
-            String debug_message = ui_message + " Detail: IOException > " + e.getMessage();
-            appCaughtException(result_container, ui_message, debug, debug_tag, debug_message);
+            String debug_message = "[" + craving.getIntegerId() + "] " + ui_message + " Detail: IOException > " + e.getMessage();
+            appCaughtException(result_container, ui_message, craving.shouldDebug(), craving.getDebugTag(), debug_message);
+
+        } finally {
+
+            if (con != null) con.disconnect();
         }
 
         return result_container;
@@ -153,7 +183,6 @@ public class DataCraver {
 
             Data result = null;
 
-            Quicky.logDebugMessage(debug, debug_tag, "Time to process your craving");
             if (processor != null) result = processor.processCraving(craving);
             else result = processCraving(craving);
 
@@ -168,7 +197,7 @@ public class DataCraver {
         private Data processCraving(Craving craving) {
 
             Data result_container = Data.getInstance(craving.getId(), craving.getIntegerId());
-            return DataCraver.processCraving(craving, result_container, debug, debug_tag);
+            return DataCraver.processCraving(craving, result_container);
         }
 
         @Override
@@ -184,17 +213,17 @@ public class DataCraver {
         private void cravingProcessed(Data data) {
 
             Data.HTTPCODE response_code = data.getHttpCode();
-            Quicky.logDebugMessage(debug, debug_tag, "Your craving was processed");
-            Quicky.logDebugMessage(debug, debug_tag, data.toString());
+
+            Quicky.logDebugMessage(craving.shouldDebug(), craving.getDebugTag(), "[" + craving.getIntegerId() + "] " + "Your craving was processed.");
 
             if (response_code.code >= 400 && listener != null) {
 
-                Quicky.logDebugMessage(debug, debug_tag, "Craving is unavailable");
+                Quicky.logDebugMessage(craving.shouldDebug(), craving.getDebugTag(), "[" + craving.getIntegerId() + "] " + "Craving is unavailable.");
                 listener.craveUnavailable(data.getId(), data.getIntegerId(), data);
 
             } else if (response_code.code >= 200 && listener != null) {
 
-                Quicky.logDebugMessage(debug, debug_tag, "Craving is available");
+                Quicky.logDebugMessage(craving.shouldDebug(), craving.getDebugTag(), "[" + craving.getIntegerId() + "] " + "Craving is available.");
                 listener.craveAvailable(data.getId(), data.getIntegerId(), data);
             }
         }
@@ -237,6 +266,26 @@ public class DataCraver {
      */
     public static class Quicky {
 
+        public static boolean checkNetworkConnection(Context context) {
+
+            if (context != null) {
+
+                ConnectivityManager connection_manager = (ConnectivityManager) context.getSystemService(Context.CONNECTIVITY_SERVICE);
+                NetworkInfo network_info = connection_manager.getActiveNetworkInfo();
+
+                if (network_info == null || !network_info.isConnected()) {
+
+                    return false;
+
+                } else {
+
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         public static boolean isHttps(String url) {
 
             if (url.toLowerCase().indexOf("https") != -1) return true;
@@ -245,47 +294,73 @@ public class DataCraver {
 
         public static void setDoOutPutTrue(HttpURLConnection conn, String method) {
 
-            //TODO: find out if setDoOutput needs to be true for DELETE option
             if ((method).toLowerCase().equals("POST".toLowerCase())  ||
-                    (method).toLowerCase().equals("PUT".toLowerCase()))  { // ||
-                    //(method).toLowerCase().equals("DELETE".toLowerCase())) {
+                    (method).toLowerCase().equals("PUT".toLowerCase()))  {
 
                 conn.setDoOutput(true);
             }
         }
 
-        public static void setRequestHeaders(HttpURLConnection con, ArrayList<BasicNameValuePair> headers) {
+        public static void setRequestHeaders(HttpURLConnection con, Craving craving) {
 
-            if (headers != null) {
+            if (con != null && craving != null) {
 
-                for (int i = 0; i < headers.size(); i++) {
+                ArrayList<BasicNameValuePair> headers = craving.getHeaders();
 
-                    con.addRequestProperty(headers.get(i).getName(), headers.get(i).getValue());
+                String debug_tag = craving.getDebugTag();
+                boolean debug = craving.shouldDebug();
+                int debug_id = craving.getIntegerId();
+
+                if (headers != null) {
+
+                    for (int i = 0; i < headers.size(); i++) {
+
+                        String name = headers.get(i).getName();
+                        String value = headers.get(i).getValue();
+                        Quicky.logDebugMessage(debug, debug_tag, "[" + debug_id + "] REQUEST_HEADER = " + name + " : " + value);
+
+                        con.addRequestProperty(name, value);
+                    }
                 }
             }
         }
 
-        public static void writePostParameters(HttpURLConnection con, String method, ArrayList<BasicNameValuePair> post_parameters)
-                throws IOException {
+        public static void writePostBody(HttpURLConnection con, Craving craving) throws IOException {
 
-            //TODO: find out if writeToOutputStream needs to be done for DELETE option
             try {
 
-                String post_params = Quicky.getPostParametersInString(post_parameters, null);
-                if (post_parameters != null &&
-                        (method).toLowerCase().equals("POST".toLowerCase()) ||
-                        (method).toLowerCase().equals("PUT".toLowerCase())) { // ||
-                        //(method).toLowerCase().equals("DELETE".toLowerCase())) {
+                if (con != null && craving != null) {
 
-                    Quicky.writeToOutputStream(con, post_params);
+                    String method = craving.getRequestMethod();
+                    String post_body = null;
+                    ArrayList<BasicNameValuePair> post_parameters = craving.getPostParameters();
+
+                    if (!TextUtils.isEmpty(craving.getPostBody())) {
+
+                        post_body = craving.getPostBody();
+                        Quicky.logDebugMessage(craving.shouldDebug(), craving.getDebugTag(),
+                                "[" + craving.getIntegerId() + "] POST_BODY = " + post_body);
+
+                    } else if (post_parameters != null) {
+
+                        post_body = Quicky.getPostParametersInString(post_parameters, null,
+                                craving.shouldDebug(), craving.getDebugTag(), craving.getIntegerId());
+                    }
+
+                    if (!TextUtils.isEmpty(post_body) &&
+                            (method).toLowerCase().equals("POST".toLowerCase()) ||
+                            (method).toLowerCase().equals("PUT".toLowerCase())) {
+
+                        Quicky.writeToOutputStream(con, post_body);
+                    }
                 }
 
             } catch (UnsupportedEncodingException e) { throw e; }
             catch (IOException e) { throw e; }
         }
 
-        public static String getPostParametersInString(ArrayList<BasicNameValuePair> post_parameters, String encoding)
-                throws UnsupportedEncodingException {
+        public static String getPostParametersInString(ArrayList<BasicNameValuePair> post_parameters, String encoding,
+                                                       boolean debug, String debug_tag, int debug_id) throws UnsupportedEncodingException {
 
             String post_params = "";
             if (post_parameters != null) {
@@ -299,6 +374,8 @@ public class DataCraver {
 
                         String key = URLEncoder.encode(post_parameters.get(i).getName(), encoding);
                         String val = URLEncoder.encode(post_parameters.get(i).getValue(), encoding);
+
+                        Quicky.logDebugMessage(debug, debug_tag, "[" + debug_id + "] REQUEST_BODY = " + key + " : " + val);
 
                         post_params = post_params + key + "=" + val;
                     }
@@ -356,9 +433,55 @@ public class DataCraver {
             return (end_time - start_time);
         }
 
-        public static long convertResponseTimeToSeconds(long millis) {
+        public static String convertResponseTimeToSeconds(long millis) {
 
-            return (millis / 1000);
+            DecimalFormat df = new DecimalFormat("0.###");
+            return df.format((double) millis / 1000);
+        }
+
+        public static void getErrorStream(HttpURLConnection con, Data result_container) {
+
+            if (con != null && result_container != null) {
+
+                try {
+
+                    InputStream in = con.getErrorStream();
+                    String error_response = Quicky.readInputStream(in);
+                    result_container.setResponse(error_response);
+
+                } catch (IOException e) { e.printStackTrace(); }
+            }
+        }
+
+        public static void logRequest(boolean debug, String debug_tag, Craving craving) {
+
+            if (craving != null) {
+
+                //DEBUG
+                Quicky.logDebugMessage(debug, debug_tag, "[" + craving.getIntegerId() + "] URL: " + craving.getUrl());
+                Quicky.logDebugMessage(debug, debug_tag, "[" + craving.getIntegerId() + "] METHOD: " + craving.getRequestMethod());
+                Quicky.logDebugMessage(debug, debug_tag, "[" + craving.getIntegerId() + "] CONN_TIMEOUT: " + craving.getConnectTimeout());
+                Quicky.logDebugMessage(debug, debug_tag, "[" + craving.getIntegerId() + "] READ_TIMEOUT: " + craving.getReadTimeout());
+            }
+        }
+
+        public static void logResponseHeaders(HttpURLConnection con, Craving craving) {
+
+            if (con != null && craving != null) {
+
+                String debug_tag = craving.getDebugTag();
+                boolean debug = craving.shouldDebug();
+                int debug_id = craving.getIntegerId();
+
+                Map<String, List<String>> headers = con.getHeaderFields();
+                Set<String> keys = headers.keySet();
+                for (String key : keys) {
+
+                    List<String> values = headers.get(key);
+
+                    logDebugMessage(debug, debug_tag, "[" + debug_id + "] RESPONSE_HEADER = " + key + " : " + values.toString());
+                }
+            }
         }
 
         public static void logDebugMessage(boolean debug, String debug_tag, String debug_message) {
@@ -367,6 +490,14 @@ public class DataCraver {
 
                 Log.d(debug_tag, debug_message);
             }
+        }
+    }
+
+    public static class NoNetworkConnectionException extends IllegalStateException {
+
+        public NoNetworkConnectionException() {
+
+            super("There's no Network connection.");
         }
     }
 }

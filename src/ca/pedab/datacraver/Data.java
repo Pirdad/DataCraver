@@ -14,7 +14,7 @@ public class Data extends BaseEntity {
 
     private int int_id;
     private HTTPCODE code;
-    private String response;
+    private Object response;
     private String content_encoding;
 
     private Data(String id, int int_id) {
@@ -48,12 +48,12 @@ public class Data extends BaseEntity {
         this.code = code;
     }
 
-    public String getResponse() {
+    public Object getResponse() {
 
         return response;
     }
 
-    public void setResponse(String response) {
+    public void setResponse(Object response) {
 
         this.response = response;
     }
